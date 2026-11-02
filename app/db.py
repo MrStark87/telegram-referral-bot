@@ -1,0 +1,275 @@
+import os
+import sqlite3
+
+from app.config import Settings
+
+
+DB_PATH = Settings.DB_PATH
+
+
+def connect_db() -> sqlite3.Connection:
+    directory = os.path.dirname(DB_PATH)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    connection = sqlite3.connect(DB_PATH)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def init_db() -> None:
+    with connect_db() as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY,
+                username TEXT,
+                first_name TEXT,
+                ref_code TEXT UNIQUE,
+                referred_by INTEGER,
+                balance REAL DEFAULT 0,
+                total_earned REAL DEFAULT 0,
+                total_withdrawn REAL DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                is_admin INTEGER DEFAULT 0,
+                is_sudo INTEGER DEFAULT 0,
+                last_seen TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS referrals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                referrer_id INTEGER,
+                referred_id INTEGER,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(referrer_id, referred_id)
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS withdrawals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                amount REAL,
+                upi_id TEXT,
+                status TEXT DEFAULT 'pending',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS channels (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id TEXT UNIQUE,
+                invite_link TEXT,
+                auto_accept INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS menu_buttons (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                label TEXT,
+                callback_data TEXT,
+                position INTEGER DEFAULT 0
+            )
+            """
+        )
+
+        connection.commit()
+
+
+def create_user(user_data: dict, referrer_id: int | None = None) -> dict | None:
+    user_id = int(user_data["id"])
+    username = user_data.get("username") or ""
+    first_name = user_data.get("first_name") or "Unknown"
+    ref_code = f"REF{user_id}"
+
+    with connect_db() as connection:
+        existing = connection.execute(
+            "SELECT id FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        if existing:
+            return get_user(user_id)
+
+        is_admin = 1 if user_id in Settings.ADMINS or user_id == Settings.OWNER_ID else 0
+        is_sudo = 1 if user_id in Settings.ADMINS or user_id == Settings.OWNER_ID else 0
+
+        connection.execute(
+            """
+            INSERT INTO users (
+                id, username, first_name, ref_code, referred_by,
+                balance, total_earned, total_withdrawn,
+                is_admin, is_sudo
+            ) VALUES (?, ?, ?, ?, ?, 0, 0, 0, ?, ?)
+            """,
+            (user_id, username, first_name, ref_code, referrer_id, is_admin, is_sudo),
+        )
+
+        if referrer_id:
+            connection.execute(
+                "INSERT OR IGNORE INTO referrals (referrer_id, referred_id) VALUES (?, ?)",
+                (referrer_id, user_id),
+            )
+
+            bonus_amount = float(Settings.get("referral_bonus", 20))
+            connection.execute(
+                "UPDATE users SET balance = balance + ?, total_earned = total_earned + ? WHERE id = ?",
+                (bonus_amount, bonus_amount, referrer_id),
+            )
+
+        connection.commit()
+
+    return get_user(user_id)
+
+
+def get_user(user_id: int) -> dict | None:
+    with connect_db() as connection:
+        row = connection.execute(
+            "SELECT * FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_users() -> list[dict]:
+    with connect_db() as connection:
+        rows = connection.execute(
+            "SELECT * FROM users ORDER BY id ASC"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_user_referrals(user_id: int) -> int:
+    with connect_db() as connection:
+        row = connection.execute(
+            "SELECT COUNT(*) AS count FROM referrals WHERE referrer_id = ?",
+            (user_id,),
+        ).fetchone()
+        return int(row["count"]) if row else 0
+
+
+def set_user_withdrawn_amount(user_id: int, amount: float) -> None:
+    with connect_db() as connection:
+        connection.execute(
+            "UPDATE users SET total_withdrawn = total_withdrawn + ?, balance = balance - ? WHERE id = ?",
+            (amount, amount, user_id),
+        )
+        connection.commit()
+
+
+def add_channel(chat_id: str, invite_link: str, auto_accept: int = 1) -> None:
+    with connect_db() as connection:
+        connection.execute(
+            "INSERT OR REPLACE INTO channels (chat_id, invite_link, auto_accept) VALUES (?, ?, ?)",
+            (str(chat_id), invite_link, auto_accept),
+        )
+        connection.commit()
+
+
+def get_channels() -> list[dict]:
+    with connect_db() as connection:
+        rows = connection.execute(
+            "SELECT * FROM channels ORDER BY id ASC"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def add_withdrawal(user_id: int, amount: float, upi_id: str) -> dict:
+    with connect_db() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO withdrawals (user_id, amount, upi_id, status)
+            VALUES (?, ?, ?, 'pending')
+            """,
+            (user_id, amount, upi_id),
+        )
+        connection.commit()
+        row = connection.execute(
+            "SELECT * FROM withdrawals WHERE id = ?",
+            (cursor.lastrowid,),
+        ).fetchone()
+        return dict(row)
+
+
+def get_user_withdrawals(user_id: int) -> list[dict]:
+    with connect_db() as connection:
+        rows = connection.execute(
+            "SELECT * FROM withdrawals WHERE user_id = ? ORDER BY id DESC",
+            (user_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def set_sudo(user_id: int, is_sudo: int) -> None:
+    with connect_db() as connection:
+        connection.execute(
+            "UPDATE users SET is_sudo = ? WHERE id = ?",
+            (is_sudo, user_id),
+        )
+        connection.commit()
+
+
+def get_admin_ids() -> list[int]:
+    with connect_db() as connection:
+        rows = connection.execute(
+            "SELECT id FROM users WHERE is_sudo = 1 OR is_admin = 1"
+        ).fetchall()
+        return [int(row["id"]) for row in rows]
+
+
+def set_setting(key: str, value: str) -> None:
+    with connect_db() as connection:
+        connection.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        connection.commit()
+
+
+def get_setting(key: str, default: str = "") -> str:
+    with connect_db() as connection:
+        row = connection.execute(
+            "SELECT value FROM settings WHERE key = ?",
+            (key,),
+        ).fetchone()
+        return row["value"] if row else default
+
+
+def save_menu_buttons(buttons: list[dict]) -> None:
+    with connect_db() as connection:
+        connection.execute("DELETE FROM menu_buttons")
+        for index, button in enumerate(buttons):
+            connection.execute(
+                "INSERT INTO menu_buttons (label, callback_data, position) VALUES (?, ?, ?)",
+                (button.get("label"), button.get("callback_data"), index),
+            )
+        connection.commit()
+
+
+def get_menu_buttons() -> list[dict]:
+    with connect_db() as connection:
+        rows = connection.execute(
+            "SELECT * FROM menu_buttons ORDER BY position ASC"
+        ).fetchall()
+        return [dict(row) for row in rows]

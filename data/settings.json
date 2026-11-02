@@ -1,0 +1,16 @@
+{
+  "start_message": "Welcome!\n\nThanks for joining.\n\nChoose an option below.",
+  "force_join_message": "Please join the required channels first to unlock the bot.\n\n{channels}\n\nAfter joining, click the button below to verify.",
+  "main_menu": [
+    "Refer and Earn",
+    "Withdrawal",
+    "Profile"
+  ],
+  "referral_bonus": 20,
+  "minimum_withdrawal": 150,
+  "menu_buttons": [
+    {"label": "Refer and Earn", "callback_data": "refer"},
+    {"label": "Withdrawal", "callback_data": "withdraw"},
+    {"label": "Profile", "callback_data": "profile"}
+  ]
+}

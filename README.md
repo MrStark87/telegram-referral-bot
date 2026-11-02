@@ -1,70 +1,52 @@
 # telegram-referral-bot
 
-Complete Telegram referral bot with:
-- Force-join verification before access
-- Referral and earn link system
-- Withdrawal manager with minimum ₹150
-- User profile with earnings, referrals, and withdrawal history
-- Admin panel with /admin, /broadcast, /addsudo, /removesudo
-- Menu builder and editable text/settings
-- Auto-join request approval support for required channels
-- SQLite database backend
-
-## Features
-
-- Force join requirement using configured Telegram channels
-- Auto-accept join requests when bot is a channel admin
-- Referrer tracking via `start=ref_<user_id>` payload
-- Referral reward of ₹20 per successful referral
-- Wallet balance and pending/approved withdrawal history
-- Command-based admin controls for moderation and broadcasts
-- Editable bot messages and menu structure from JSON config
-
-## Requirements
-
-- Python 3.11+
-- Telegram Bot Token
-- A bot account that is admin in the target force-join channels
+Complete Telegram referral bot with required features:
+- Force-join verification before bot access
+- Referral and earn reward system
+- Withdrawal request system with minimum ₹150
+- User wallet, profile, and withdrawal history
+- Admin panel with /admin, /addsudo, /broadcast
+- Config-based menu builder and custom bot text
+- Auto-accept join requests for configured channels
+- SQLite database
 
 ## Setup
 
-1. Clone the repository
-2. Create a virtual environment
-3. Install dependencies:
+1. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-4. Copy `.env.example` to `.env` and fill in your values
-5. Run the bot:
+
+2. Set environment values in `.env`:
+   ```env
+   BOT_TOKEN=your_bot_token_here
+   ADMINS=123456789
+   OWNER_ID=123456789
+   REQUIRED_CHANNELS=-1001234567890,-1001234567891
+   DB_PATH=data/telegram_referral_bot.db
+   ```
+
+3. Start the bot:
    ```bash
    python main.py
    ```
 
-## Environment variables
+## Commands
 
-- `BOT_TOKEN`: Telegram bot token
-- `ADMINS`: comma-separated admin user IDs
-- `REQUIRED_CHANNELS`: comma-separated channel IDs like `-100111111,-100222222`
-- `DB_PATH`: SQLite database path (optional, default: `data/telegram_referral_bot.db`)
-
-## Admin commands
-
-- `/admin`
-- `/broadcast` (reply to a message with this command)
-- `/addsudo <user_id>`
-- `/removesudo <user_id>`
-- `/setchannel <chat_id> <invite_link>`
-- `/listchannels`
-- `/setstartmsg`
-- `/setforcejoinmsg`
-- `/menu_builder`
-
-## Example start link
-
-`https://t.me/your_bot_username?start=ref_123456`
-
-This gives the user a referrer ID and creates referral credit automatically when the user joins the bot.
+- `/start` – start the bot and verify force-join
+- `/admin` – admin control panel
+- `/broadcast` – reply to a message and broadcast to all users
+- `/addsudo <user_id>` – add sudo user
+- `/removesudo <user_id>` – remove sudo access
+- `/setchannel <chat_id> <invite_link>` – add required channel
+- `/listchannels` – show configured channels
+- `/menu add|remove|list|reset <label>` – menu builder
+- `/withdraw <amount> <upi_id>` – send withdrawal request
+- `/profile` – show user profile and history
+- `/refer` – show referral link
 
 ## Notes
 
-This repository is intentionally built as a production-ready starter project and is suitable for customization before deploying to a live Telegram bot account.
+- The bot checks force-join channels before allowing usage.
+- The channel invite links and IDs are configured via `/setchannel` or `.env`.
+- The bot uses SQLite for data storage.
